@@ -1,0 +1,523 @@
+---
+title: "proposal"
+author: "ShufanXia"
+date: "10/16/2021"
+output: html_document
+---
+
+```{r}
+#load library
+library(tseries)
+library(forecast)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(GGally)
+#detach("package:Metrics", unload=TRUE)
+```
+
+```{r}
+
+
+csv2020<- read.csv("Data/1090006_36.01_-78.94_tmy-2020.csv",stringsAsFactors = F)#,header= FALSE)
+basicinfo <- csv2020[1,]
+data<-csv2020[c(-1,-2),seq(1,14,1)]
+data<-mutate_all(data, function(x) as.numeric(as.character(x)))
+colnames(data)<- csv2020[2,seq(1,14,1)]
+
+data$date<-paste(paste("2020",data$Month,data$Day,sep="-"), paste(data$Hour,data$Minute,sep=":"))
+data$time <-strptime(data$date,format="%Y-%m-%d  %H:%M")
+data[,seq(1,14,1)]<- sapply(data[,seq(1,14,1)],as.numeric)
+tsGHI<-ts(data$GHI)#,frequency=24*365)
+tsTemp<-ts(data$Temperature,frequency=24*365)
+
+tsdata <- lapply(data[,seq(6,14,1)],function(t) ts(t,frequency=24*365))
+
+GHIhead <- window(tsGHI,start=c(1,1),end=c(1,8040))
+GHItail <- window(tsGHI,start=c(1,8040),end=c(1,8760))
+```
+
+stationary?:
+the exact time does not matter, the relative distribution same whenever you look at the dist
+This is not stationary
+
+Trend: parabolic, peak during summer
+Seasonal: yes: both annual seasonal and 24hour seasonal
+fixed frequency of up and down: 24 hours, dirunal cycle 
+(is this seasonal or cyclic, i think there is no cyclic behavior)
+
+frequency=8766 or 1???
+
+```{r}
+GHIdf <- data.frame(GHI = tsGHI, hour = seq(1,length(tsGHI),1))
+ggplot(data=GHIdf[seq(12,8760,24),],aes(x=hour,y=GHI))+geom_point()+labs(x="GHI at noon over a year")
+
+ts.plot(tsGHI,col="red3",gpars=list(xlab="Hour since Jan.1st 00:30", ylab="Hourly GHI", lty=c(1:3)))
+ts.plot(tsGHI[1:2000],col="red3",gpars=list(xlab="hour", ylab="GHI", lty=c(1:3)))
+ts.plot(tsGHI[1:120],col="red3",gpars=list(xlab="hour", ylab="GHI", lty=c(1:3)))
+ts.plot(tsGHI[1200:1300],col="red3",gpars=list(xlab="Hour since Jan.1st 00:30", ylab="Hourly GHI", lty=c(1:3)))
+```
+```{r}
+#just to have seasonal plot
+seasonaldata <- aggregate(data[,c("DHI","DNI","GHI","Dew Point","Surface Albedo","Wind Direction","Wind Speed","Temperature" ,"Pressure")],list(data$Month,data$Hour),mean)
+
+seasonMeanGHIts <- ts(seasonaldata$GHI,frequency = 24)
+ggseasonplot(seasonMeanGHIts,polar=TRUE)+ylab("Mean Hourly GHI")+labs(title="Hourly GHI averaged by month")+scale_color_discrete(name= "Month")
+```
+
+#lag plot
+An elliptical plot suggests that the data comes from a single-cycle sinusoidal model.
+Strongest correlation at lag=1 and lag =2
+
+```{r}
+gglagplot(tsGHI)
+
+```
+
+
+
+```{r}
+p1<-autoplot(tsGHI)+labs(y="GHI")+theme(axis.title.x = element_blank(),plot.margin = unit( c(0,0,-1.5,0) , units = "lines" ) )
+p11 <-autoplot(tsdata[['DNI']])+labs(y="GNI")+theme(axis.title.x = element_blank(),plot.margin = unit( c(0,0,-1.5,0) , units = "lines" ) )
+p12 <-autoplot(tsdata[['DHI']])+labs(y="GHI")+theme(axis.title.x = element_blank(),plot.margin = unit( c(0,0,-1.5,0) , units = "lines" ) )
+
+grid.arrange(p1, p11,p12,ncol = 1)
+
+p1<-autoplot(tsGHI)+labs(y="GHI")+theme(axis.title.x = element_blank(),plot.margin = unit( c(0,0,-0.5,0) , units = "lines" ) )
+p2<-autoplot(tsTemp)+labs(y="Temp")+theme(axis.title.x = element_blank(),plot.margin = unit( c(0,0,-0.5,0) , units = "lines" ) )
+p3 <-autoplot(tsdata[['Surface Albedo']])+labs(y="Surface Albedo")+theme(axis.title.x = element_blank(),plot.margin = unit( c(0,0,-0.6,0) , units = "lines" ) )
+p4 <-autoplot(tsdata[['Dew Point']])+labs(y="Dew Point")+theme(plot.margin = unit( c(0,0,-0.5,0) , units = "lines" ) )
+grid.arrange(p1, p2,p3,p4,ncol = 1)
+
+p5 <-autoplot(tsdata[['Wind Direction']])+labs(y="Wind Direction")+theme(axis.title.x = element_blank(),plot.margin = unit( c(0,0,-0.5,0) , units = "lines" ) )
+p6 <-autoplot(tsdata[['Wind Speed']])+labs(y="Wind Speed")+theme(plot.margin = unit( c(0,0,-0.5,0) , units = "lines" ) )
+
+
+
+grid.arrange(p5,p6,ncol = 1)
+```
+
+```{r}
+qplot(data$DHI,data$GHI)+ylab("GHI (W/m^2)")+xlab("DHI")
+qplot(data$DNI,data$GHI)+ylab("GHI (W/m^2)")+xlab("DNI")
+qplot(data$Temperature,data$GHI)+ylab("GHI (W/m^2)")+xlab("Temperature (Celsius)")
+qplot(data$`Dew Point`,data$GHI)+ylab("GHI (W/m^2)")+xlab("Dew Point")
+qplot(data$`Wind Direction`,data$GHI)+ylab("GHI (W/m^2)")+xlab("Wind Direction")
+qplot(data$`Wind Speed`,data$GHI)+ylab("GHI (W/m^2)")+xlab("Wind Speed")
+qplot(data$Pressure,data$GHI)+ylab("GHI (W/m^2)")+xlab("Pressure")
+qplot(data$`Surface Albedo`, data$GHI) +ylab("GHI (W/m^2)")+xlab("Surface Albedo")#+ geom_point(alpha = .5,colour="blue4") #+  geom_smooth(method = (y~x))
+
+
+```
+
+#let's make surface albdeo categorical??
+#how about Pressure?
+```{r}
+hist(data$`Surface Albedo`)
+hist(data$`Surface Albedo`[data$`Surface Albedo`<0.8])
+length(data$`Surface Albedo`[data$`Surface Albedo`>0.8])
+```
+# predictor slection here
+
+```{r}
+data$SurfaceAlbedoLevel[data$`Surface Albedo`==0.11]<-"0.11"
+data$SurfaceAlbedoLevel[data$`Surface Albedo`==0.12]<-"0.12"
+data$SurfaceAlbedoLevel[data$`Surface Albedo`==0.13]<-"0.13"
+data$SurfaceAlbedoLevel[data$`Surface Albedo`==0.14]<-"0.14"
+data$SurfaceAlbedoLevel[data$`Surface Albedo`==0.15]<-"0.15"
+data$SurfaceAlbedoLevel[data$`Surface Albedo`==0.87]<-"0.87"
+data$SurfaceAlbedoLevel <- as.factor(data$SurfaceAlbedoLevel)
+data$hour_since <- seq(1,8760,1)
+
+linearmodel1 <- lm(GHI~Temperature+SurfaceAlbedoLevel+Pressure+`Dew Point`+`Wind Speed`+`Wind Direction`,data=data)
+summary(linearmodel1)
+plot(linearmodel1)
+ggplot(data, aes(x=as.numeric(hour_since), y=linearmodel1$residual)) +
+  geom_point(alpha = .5,colour="blue4") +
+  geom_hline(yintercept=0,col="red3") + labs(title="Residuals vs Time")
+
+linearmodel2 <- lm(GHI~Temperature+SurfaceAlbedoLevel+Pressure+`Dew Point`+`Wind Speed`+`Wind Direction`+Hour+Month,data=data)
+summary(linearmodel2)
+plot(linearmodel2)
+
+ggplot(data, aes(x=as.numeric(time), y=linearmodel2$residual)) +
+  geom_point(alpha = .5,colour="blue4") +
+  geom_hline(yintercept=0,col="red3") + labs(title="Residuals vs Time")
+
+# trend
+```
+# predictor selection
+```{r}
+```
+
+Stationary test and autocorrelation test?
+Augmented Dickey-Fuller Test reject null hypothesis: so this is stationary
+KPSS Test for Level Stationarity: the null hypothesis is actually "stationary", so reject the null hypothesis
+
+Two tests say different things,
+(Hyndman, R.J) This is not staionary becasue correlatoin decreases only gradually
+Paritial correlation after 1 lag is still significant, linear regression model is not sufficient.
+
+The decreasing in the ACF as the lags increase is due to the trend, while the sinusoidal shape is due the durinal cycle
+
+Partial autocorrelation plot suggests p=4 become small enough: ar p=4
+Don't see how MA would help
+
+
+```{r}
+
+tsGHI %>% ggtsdisplay(lag.max=80,main="Hourly GHI")
+adf_test <- adf.test(tsGHI,alternative = 'stationary')
+print(adf_test)
+
+kpss_test <- kpss.test(tsGHI)
+print(kpss_test)
+
+
+acf(tsGHI[1:8760],lag.max=80)
+pacf(tsGHI[1:8760],lag.max=80)
+```
+
+First order differenceing makes it stationary
+from autocorrelation: dies off at lag = 4 --> ma= 4??
+from partial autocorrelation: dies off at 2, but comes back again
+```{r}
+tsDiffOne <- diff(tsGHI)
+
+autoplot(tsDiffOne)
+tsDiffOne%>%ggtsdisplay()
+
+adf_test <- adf.test(tsDiffOne,alternative = 'stationary')
+print(adf_test)
+
+kpss_test <- kpss.test(tsDiffOne)
+print(kpss_test)
+
+
+acf(tsDiffOne,lag.max=200)
+pacf(tsDiffOne,lag.max=100)
+# if only ar, lag=29 or more
+# if I add auto
+```
+```{r}
+diff(tsGHI,24)%>%diff() ->   tsDiff24
+
+tsDiff24%>%ggtsdisplay()
+
+adf_test <- adf.test(tsDiff24,alternative = 'stationary')
+print(adf_test)
+
+kpss_test <- kpss.test(tsDiff24)
+print(kpss_test)
+
+
+acf(tsDiff24,lag.max=80,main="Seasonal differenceing with lag=24")
+pacf(tsDiff24,lag.max=80,main="Seasonal differenceing with lag=24")
+```
+```{r}
+ggpairs(data[,c("GHI","Dew Point","Surface Albedo","Wind Direction","Wind Speed","Temperature","Pressure")])
+```
+
+# let's fit an AR model
+```{r}
+# autoARmodel <- auto.arima(tsGHI,d=1,max.q=0)
+# autoARmodel
+armodel <- arima(tsGHI,order=c(26,1,0))#method"CSS"cross validation
+armodel
+```
+# check resiudal (model validation)
+```{r}
+checkresiduals(armodel)
+acf(armodel$residuals,lag.max=80)
+pacf(armodel$residuals,lag.max=80)
+```
+# compute accuracy
+MASE = 1.50
+```{r}
+# refitARmodel <- arima(GHIhead,c(26,1,0))
+# fcastAR <- forecast(refitARmodel,h=720)
+# autoplot(GHIhead) +
+#   autolayer(fcastAR, series="forecast", PI=FALSE)
+# fcastAR %>% autoplot()
+# accuracy(fcastAR,GHItail)
+```
+
+
+# let's use arima model 
+select based on AIC
+R estimates the ARIMA model, it uses maximum likelihood estimation (MLE)
+
+d = 1: confirm that 1 differencing makes the series stationary
+p = 4, q=2
+
+They indicate the possible ARIMA (p, 1, q) model, where, usually, p = 1–5, q = 1–3, and d is usually 1 [42]
+# I could try forcing q=0, and it will  an AR model
+# i need to add MA part
+```{r}
+autoarimaModel1<-auto.arima(GHIhead)
+autoarimaModel1
+# fit <- Arima(tsGHI,order=c(4,1,2))
+# fit
+```
+
+# aesseing the model
+shows that all autocorrelations are not within the threshold limits, indicating that the residuals are not behaving like white noise. 
+A portmanteau test returns a small p-value, also suggesting that the residuals are not white noise.
+
+```{r}
+checkresiduals(autoarimaModel1)
+acf(residuals(autoarimaModel1))
+pacf(residuals(autoarimaModel1))
+```
+
+
+#accuracy
+use (p,d,q)=(4,1,2) to refit arima model and forecast on the last month
+MASE = 2.18
+# let's make test dta for last month
+```{r}
+arimamodel_refit <- arima(GHIhead,order=c(4,1,2))
+arimamodel_refit
+arimafcast <- forecast(arimamodel_refit,h=2190)
+autoplot(GHIhead) +
+  autolayer(arimafcast, series="forecast", PI=FALSE)
+
+arimafcast %>% autoplot()
+accuracy(arimafcast,GHItail)
+
+```
+
+
+#This is bad, I think clearly it says seasonal. I think it calls for a seasonal model
+#auto arima (d=0) model on the first-order differencing series, giving the same result: confirmed
+```{r}
+arma1<-auto.arima(tsDiffOne,d=0)#,order=c(4,2))
+arma1
+autoarimaModel1
+checkresiduals(arma1)
+```
+
+```{r}
+arima27 <- arima(tsGHI,order =c(26,1,2))
+```
+```{r}
+checkresiduals(arima27 )
+acf(arima27 $residuals,lag.max=80)
+pacf(arima27 $residuals,lag.max=80)
+```
+```{r}
+arima27_refit <- arima(GHIhead,order=c(26,1,2))
+arima27_refit
+```
+```{r}
+checkresiduals(arima27_refit)
+acf(arima27_refit $residuals,lag.max=80)
+pacf(arima27_refit  $residuals,lag.max=80)
+```
+
+#ar_arimafcast <- forecast(ar_arima_refit,h=2190)
+```{r}
+autoplot(GHIhead) +
+  autolayer(ar_arimafcast, series="forecast", PI=FALSE)
+ar_arimafcast %>% autoplot()
+accuracy(ar_arimafcast,GHItail)
+
+```
+
+
+
+# let's throw in some predictor to see if this helps
+AIC decreases slightly only, I think it needs more fix
+```{r}
+xreg <- cbind(Temp=data$Temperature,DewPoint=data$`Dew Point`,SurfaceAlbedoLevel=data$SurfaceAlbedoLevel,WindDir =data$`Wind Direction`,WindSpeed=data$`Wind Speed`)
+
+model1_predictor <- auto.arima(data$GHI,xreg = xreg)
+model1_predictor
+```
+
+# model assesement
+bad!!! because acf on residual does not dies down definitely
+```{r}
+checkresiduals(model1_predictor)
+acf(residuals(model1_predictor))
+pacf(residuals(model1_predictor))
+```
+
+# accuracy
+#forecast looks better because temperature captures seasonality possibly
+# ignore <0 prediction, it should be considred as 0.
+```{r}
+datahead <- data[1:8040,]
+datatail <- data[8040:8760,]
+xreg <- cbind(Temp=datahead$Temperature,DewPoint=datahead$`Dew Point`,SurfaceAlbedoLevel=datahead$SurfaceAlbedoLevel,WindDir =datahead$`Wind Direction`,WindSpeed=datahead$`Wind Speed`)
+
+refit_predictor <- Arima(GHIhead, order=c(4,1,2),xreg = xreg)
+checkresiduals(refit_predictor,lag.max=100)
+arimapredictorfcast <- forecast(refit_predictor,
+  xreg = cbind(Temp=datatail$Temperature,DewPoint=datatail$`Dew Point`,SurfaceAlbedoLevel=datatail$SurfaceAlbedoLevel,WindDir=datatail$`Wind Direction`,WindSpeed=datatail$`Wind Speed`
+    ))
+autoplot(GHIhead) +
+  autolayer(arimapredictorfcast, series="forecast", PI=FALSE)
+
+arimapredictorfcast %>% autoplot(ylab="Hourly GHI")
+accuracy(arimapredictorfcast,GHItail)
+
+
+```
+terrible still, but normality assumption improved
+stochastic trends, d=1
+
+
+# I think I need seasonality, I don't know how https://hal.archives-ouvertes.fr/hal-02151290/document this only do it with arma(29,0)
+
+#seasonally differencing
+```{r}
+# tsDiff24
+tsDiff24 %>%ggtsdisplay(lag.max=100)
+acf(tsDiff24,lag.max=100)
+pacf(tsDiff24,lag.max=100)
+```
+```{r}
+seasonaldiffARIMA2 <- Arima(tsGHI,order=c(1,1,3),seasonal=list(order=c(1,1,1),period=24))
+seasonaldiffARIMA2
+checkresiduals(seasonaldiffARIMA2,lag=80)
+acf(seasonaldiffARIMA2$residuals,lag.max=80)
+pacf(seasonaldiffARIMA2$residuals,lag.max=80)
+```
+
+```{r}
+seasonaldiffARIMA1 <- Arima(tsGHI,order=c(4,1,3),seasonal=list(order=c(1,1,1),period=24))
+seasonaldiffARIMA1
+checkresiduals(seasonaldiffARIMA1,lag.max=100)
+acf(seasonaldiffARIMA1$residuals,lag.max=80)
+pacf(seasonaldiffARIMA1$residuals,lag.max=80)
+```
+
+```{r}
+seasonaldiffARIMA2 <- Arima(tsGHI,order=c(5,1,3),seasonal=list(order=c(1,1,1),period=24))
+seasonaldiffARIMA2
+checkresiduals(seasonaldiffARIMA2,lag=80)
+acf(seasonaldiffARIMA2$residuals,lag.max=80)
+pacf(seasonaldiffARIMA2$residuals,lag.max=80)
+```
+
+```{r}
+seasonaldiffARIMA2 <- Arima(tsGHI,order=c(7,1,3),seasonal=list(order=c(1,1,1),period=24))
+seasonaldiffARIMA2
+checkresiduals(seasonaldiffARIMA2,lag=80)
+acf(seasonaldiffARIMA2$residuals,lag.max=80)
+pacf(seasonaldiffARIMA2$residuals,lag.max=80)
+```
+#forecasting
+```{r}
+seasonalarimamodel_refit <- Arima(GHIhead,order=c(4,1,3),seasonal=list(order=c(1,1,1),period=24))
+seasonalarimamodel_refit
+checkresiduals(seasonalarimamodel_refit,lag.max=100)
+```
+```{r}
+seasonalarimafcast <- forecast(seasonalarimamodel_refit,h=30*24)
+autoplot(GHIhead) +
+  autolayer(seasonalarimafcast, series="forecast", PI=FALSE)
+
+seasonalarimafcast %>% autoplot()
+accuracy(seasonalarimafcast,GHItail)
+```
+
+```{r}
+dayahead_train <- window(mstsGHI,start=c(1,1),end=c(1,8736))
+dayahead_test <- window(mstsGHI,start=c(1,8736),end=c(1,8760))
+dayaheadGHI_refit <- Arima(dayahead_train,order=c(4,1,3),seasonal=list(order=c(1,1,1),period=24))
+# mstsGHI_refit<-mstsGHI_refit["model"]$model
+dayahead_fcast <-forecast(dayaheadGHI_refit,h=24)
+autoplot(dayahead_train) +
+  autolayer(dayahead_fcast, series="forecast", PI=FALSE)
+dayahead_fcast %>% autoplot()+theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())
+#+scale_x_date(limits =  as.Date(c("01-01", "12-31"),"%m-%d"))#,minor_breaks = as.Date(c("01-01", "04-01",\"08-01", "12-01"),"%m-%d"))
+
+accuracy(dayahead_fcast,dayahead_test)
+
+dayahead <- data.frame(hour=seq(0,23,1),ghi=dayahead_fcast$mean,ghi_actual = tsGHI[8737:8760])
+
+ggplot(dayahead,aes(x=hour,y=ghi,color="predicted"))+geom_point()+geom_point(aes(x=hour,y=ghi_actual,color="expected"))+geom_smooth()+labs(title="One-day-ahead forecast for Dec.31st",y="Hourly GHI")
+```
+
+
+
+time series decomposition
+
+
+```{r}
+mstsGHI<-msts(data$GHI,seasonal.periods = c(24,8760/12))#first is the daily seasonality, then the monthly: period1 =24 hours, period2 = 24*30 =8760/12
+mstlGHI <- mstl(mstsGHI)
+mstlGHI %>% autoplot()
+mstsGHI_train <- window(mstsGHI,start=c(1,1),end=c(1,8040))
+mstlGHI_train <- mstl(mstsGHI_train)
+mstlGHI_train %>% autoplot()
+mstsGHI_test <- window(mstsGHI,start=c(1,8040),end=c(1,8760))
+
+adjusted<- mstlGHI_train%>%seasadj()
+adjustedDiff1 <- diff(adjusted)
+acf(adjustedDiff1,lag.max=80)
+pacf(adjustedDiff1,lag.max=80)
+
+```
+```{r}
+adjusted_model <- auto.arima(adjusted)
+checkresiduals(adjustedModel,lag.max=150)
+```
+
+```{r}
+adjustedModel <- Arima(adjusted,order=c(2,1,2))
+adjustedModel
+
+```
+
+```{r}
+seasonalSTL0<-stlm(mstsGHI_train,modelfunction=Arima,order=c(5,1,2))#,seasonal=list(order=c(2,0,0),period=24))
+seasonalSTLmodel0<-seasonalSTL0$model
+seasonalSTLmodel0
+checkresiduals(seasonalSTLmodel0,lag.max=150)
+acf(residuals(seasonalSTLmodel0),lag.max=100)
+AIC(seasonalSTL0$model)
+ms_fcast <-forecast(seasonalSTL0,h=720)
+ms_fcast%>%autoplot()
+accuracy(ms_fcast,mstsGHI_test)
+```
+
+
+
+```{r}
+monthahead <- data.frame(hour=seq(1,720,1),ghi=ms_fcast$mean,ghi_actual = mstsGHI[8041:8760])
+
+ggplot(monthahead,aes(x=hour,y=ghi,color="predicted"))+geom_point()+geom_point(aes(x=hour,y=ghi_actual,color="expected"))+geom_smooth()+labs(title="One-day-ahead forecast for Dec.31st",y="Hourly GHI")
+```
+#accuracy
+
+```{r}
+dayahead_train <- window(mstsGHI,start=c(1,1),end=c(1,8592))
+dayahead_test <- window(mstsGHI,start=c(1,8592),end=c(1,8760))
+dayaheadGHI_refit <- stlm(dayahead_train,modelfunction=Arima,order=c(5,1,2))
+# mstsGHI_refit<-mstsGHI_refit["model"]$model
+dayahead_fcast <-forecast(dayaheadGHI_refit,h=24*7)
+autoplot(dayahead_train) +
+  autolayer(dayahead_fcast, series="forecast", PI=FALSE)
+dayahead_fcast %>% autoplot()+theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())
+#+scale_x_date(limits =  as.Date(c("01-01", "12-31"),"%m-%d"))#,minor_breaks = as.Date(c("01-01", "04-01",\"08-01", "12-01"),"%m-%d"))
+
+accuracy(dayahead_fcast,dayahead_test)
+
+dayahead <- data.frame(hour=seq(1,24*7,1),ghi=dayahead_fcast$mean,ghi_actual = tsGHI[8593:8760])
+dayahead$ghi[dayahead$ghi<0] <- 0
+ggplot(dayahead,aes(x=hour,y=ghi,color="predicted"))+geom_line(lwd=1.5)+geom_line(aes(x=hour,y=ghi_actual,color="actual"),lwd=1)+labs(title="One-week-ahead forecast for Dec.24th-31st",y="Hourly GHI")#+geom_smooth()
+```
+
+```{r}
+seasonalmodel2<-stlm(mstsGHI_train,modelfunction=Arima,order=c(4,1,2))
+modelOnAdjusted2<-seasonalmodel2["model"]$model
+modelOnAdjusted2
+checkresiduals(seasonalmodel2)
+acf(residuals(seasonalmodel2),lag.max=80)+theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())
+pacf(residuals(seasonalmodel2),lag.max=80)+theme(axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())
+
+forecast(seasonalmodel2,h=720)%>%autoplot()
+```
